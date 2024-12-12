@@ -1,96 +1,59 @@
 from collections import Counter, defaultdict
+from enum import StrEnum
 from itertools import permutations
 import math
-from typing import Dict, List, Literal, Tuple
+from typing import DefaultDict, List, Literal
 from scipy.optimize import linear_sum_assignment
 
 from ballot import Ballot
 
 
-class Evaluator:
+class SWF(StrEnum):
+    PLACE_PLURALITY = "PlacePlurality"
+    PAIRWISE_COMPARISON = "PairwiseComparison"
+    BORDA_COUNT = "BordaCount"
+    KEMENY_YOUNG = "Kemeny"
+    PRUNED_KEMENY = "PrunedKemeny"
+    SPEARMAN_FOOTRULE = "SpearmanFootrule"
+    PRUNED_FOOTRULE = "IdealPrunedSpearmanFootrule"
+    PRUNED2_FOOTRULE = "PracticalPrunedSpearmanFootrule"
+
+
+class Ranker:
 
     def __init__(self, ballot: Ballot):
         self.rankings = ballot.rankings
         self.num_candidates = len(self.rankings[0])
         self.num_rankings = len(self.rankings)
         self.num_bad = len(ballot.bad_rankings)
-        self.results = defaultdict(list)
+        self.results: DefaultDict[SWF, List[int]] = defaultdict(list)
 
-    def apply_swf(
-        self,
-        method: Literal["PlacePlurality", "PairwiseComparison", "BordaCount",
-                        "Kemeny", "PrunedKemeny", "SpearmanFootrule",
-                        "IdealPrunedSpearmanFootrule",
-                        "PracticalPrunedSpearmanFootrule", "all"] = "all"
-    ) -> Dict[str, List[int]]:
-        if method == "PlacePlurality":
+    def apply_swf(self, method: SWF) -> List[int]:
+        rank = []
+        if method == SWF.PLACE_PLURALITY:
             rank = self._place_plurality()
-        elif method == "PairwiseComparison":
+        elif method == SWF.PAIRWISE_COMPARISON:
             rank = self._condorcet_pairwise_comparison()
-        elif method == "BordaCount":
+        elif method == SWF.BORDA_COUNT:
             rank = self._borda_count()
-        elif method == "Kemeny":
-            # rank = self._kemeny()
+        elif method == SWF.KEMENY_YOUNG:
             rank = self._kemeny_young()
-        elif method == "PrunedKemeny":
+        elif method == SWF.PRUNED_KEMENY:
             rank = self._pruned_kemeny()
-        elif method == "SpearmanFootrule":
-            # rank = self._spearman_footrule()
+        elif method == SWF.SPEARMAN_FOOTRULE:
             rank = self._spearman_footrule()
-        elif method == "IdealPrunedSpearmanFootrule":
+        elif method == SWF.PRUNED_FOOTRULE:
             rank = self._ideal_pruned_spearman_footrule()
-        elif method == "PracticalPrunedSpearmanFootrule":
+        elif method == SWF.PRUNED2_FOOTRULE:
             rank = self._practical_spearman_footrule_pruned()
 
-        if method == "all":
-            self.results[method] = {
-                "PlacePlurality":
-                self.apply_swf("PlacePlurality"),
-                "PairwiseComparison":
-                self.apply_swf("PairwiseComparison"),
-                "BordaCount":
-                self.apply_swf("BordaCount"),
-                "Kemeny":
-                self.apply_swf("Kemeny"),
-                "PrunedKemeny":
-                self.apply_swf("PrunedKemeny"),
-                # "SpearmanFootrule":
-                # self.apply_swf("SpearmanFootrule"),
-                # "IdealPrunedSpearmanFootrule":
-                # self.apply_swf("IdealPrunedSpearmanFootrule"),
-                "PracticalPrunedSpearmanFootrule":
-                self.apply_swf("PracticalPrunedSpearmanFootrule")
-            }
-        else:
-            self.results[method] = rank
+        self.results[method] = rank
+
         return self.results[method]
 
-    def _pairwise_comparisons(self, ranking) -> List[Tuple[int, int]]:
-        """
-            Generate a set of pairwise comparisons for a ranking.
-            Each comparison is a tuple (a, b) where a is ranked higher than b.
-            """
-        comparisons = set()
-        for i, _ in enumerate(ranking):
-            for j in range(i + 1, len(ranking)):
-                comparisons.add((ranking[i], ranking[j]))
-        return comparisons
-
-    def eval_swf(
-        self, method: Literal["PlacePlurality", "PairwiseComparison", "BordaCount",
-                        "Kemeny", "PrunedKemeny", "SpearmanFootrule",
-                        "IdealPrunedSpearmanFootrule",
-                        "PracticalPrunedSpearmanFootrule"]
-    ) -> int:
+    def evaluate_swf(self, method: SWF) -> int:
         ideal_ranking = list(range(self.num_candidates))
         return self._kendall_tau_distance(ideal_ranking, self.results[method])
-
-        # Evaluate each ranking
-        ranking_comparisons = self._pairwise_comparisons(self.results[method])
-        matches = len(ideal_comparisons & ranking_comparisons)
-        return len(ideal_comparisons) - matches
-        # result = self._kemeny_distance_pair(ideal_ranking, self.results[method])
-        # return result
 
     def _create_pairwise_matrix(self, rankings) -> List[List[int]]:
         # Initialize a pairwise comparison matrix
@@ -111,11 +74,11 @@ class Evaluator:
 
     def _place_plurality(self) -> List[int]:
         candidates = set(range(self.num_candidates))
-        ranked_candidates = []
+        ranked_candidates: List[int] = []
 
         # Loop over all rankings to count votes at each position for each candidate
         for position in range(self.num_candidates):
-            position_votes = Counter()
+            position_votes: Counter = Counter()
             for ranking in self.rankings:
                 voted_candidate = ranking[position]
                 position_votes[voted_candidate] += 1
@@ -153,7 +116,6 @@ class Evaluator:
         for ranking in self.rankings:
             for i, candidate in enumerate(ranking):
                 # Assign the points based on position in the ranking
-                # (highest position gets self.num_candidates-1 points, next gets self.num_candidates-2, etc.)
                 borda_scores[candidate] += (self.num_candidates - 1 - i)
 
         # Step 2: Rank candidates based on the total Borda scores in descending order
@@ -165,7 +127,7 @@ class Evaluator:
 
     def _get_all_rankings(self) -> List[List[int]]:
         # Generate all possible rankings (permutations of candidates)
-        return list(permutations(range(self.num_candidates)))
+        return [list(p) for p in permutations(range(self.num_candidates))]
 
     def _kemeny_distance(self, ranking: List[int],
                          rankings: List[List[int]]) -> int:
@@ -332,7 +294,6 @@ class Evaluator:
         """
         # Get the set of all unique items across all self._rankings
         items = set(item for ranking in self.rankings for item in ranking)
-        n = len(items)
 
         # Convert the set of items into a sorted list
         items = sorted(items)
@@ -367,7 +328,6 @@ class Evaluator:
         Returns:
         - The Spearman's Footrule distance between the two rankings.
         """
-        m = len(ranking1)  # Number of candidates
         # Create a dictionary for the position of each candidate in ranking1 and ranking2
         position1 = {candidate: i for i, candidate in enumerate(ranking1)}
         position2 = {candidate: i for i, candidate in enumerate(ranking2)}
@@ -380,20 +340,6 @@ class Evaluator:
         return distance
 
     def _spearman_footrule(self):
-        n = len(self.rankings)  # Number of voters
-
-        # # Initialize a list to store total Spearman distances for each candidate ranking
-        # total_distances = [0] * n
-
-        # # Calculate the Spearman Footrule distance of each ranking to all others
-        # for i in range(n):
-        #     total_distances[i] = sum(self._spearman_footrule_distance(self.rankings[i], self.rankings[j]) for j in range(n) if i != j)
-
-        # Select the ranking with the minimal total Spearman Footrule distance
-        # best_ranking_index = total_distances.index(min(total_distances))
-        # return self.rankings[best_ranking_index]
-
-        # Changed
         all_perms = self._get_all_rankings()
         min_distance = float('inf')
         best_ranking = None
@@ -445,7 +391,7 @@ class Evaluator:
         # Calculate the cost matrix based on Spearman's Footrule
         # Find the f-most-distant rankings and remove from ballot
         best_dist = math.inf
-        best_ranking = None
+        best_ranking = self.rankings[0]
         for ranking in self.rankings:
             curr_ranking, curr_dist = self._spearman_footrule_prune(ranking)
             next_ranking, next_dist = self._spearman_footrule_prune(
@@ -485,10 +431,6 @@ class Evaluator:
                     pi = ranking.index(i)
                     cost += abs(pi - j)
                 cost_matrix[i][j] = cost
-
-        # c = self.num_candidates % 2
-        # scaling = 2.0/(self.num_candidates**2 - c)
-        # cost_matrix = cost_matrix * scaling
 
         # Apply the Hungarian algorithm to find the optimal matching
         _, col_ind = linear_sum_assignment(cost_matrix)
